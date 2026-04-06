@@ -1,4 +1,4 @@
-# V8 App Template
+# ZenTalk App Template
 
 A modern, production-ready web application template built with Vite, React, and TypeScript. Designed for AI-assisted development with component introspection, layout systems, and excellent developer experience.
 
