@@ -13,7 +13,7 @@ interface Props {
 }
 
 export default function ChatInput({ replyTo, onCancelReply, editingMsg, onCancelEdit }: Props) {
-  const { sendMessage, editMessage, activeChat, currentUser, communities, isUserBlocked } = useApp();
+  const { sendMessage, editMessage, activeChat, currentUser, communities, groups, isUserBlocked } = useApp();
   const [text, setText] = useState('');
   const [showEmoji, setShowEmoji] = useState(false);
   const [showAttach, setShowAttach] = useState(false);
@@ -36,13 +36,20 @@ export default function ChatInput({ replyTo, onCancelReply, editingMsg, onCancel
       const otherUserId = activeChat.participants.find(id => id !== currentUser.id);
       if (otherUserId && isUserBlocked(otherUserId)) return false;
     }
+    if (activeChat.type === 'group') {
+      const group = groups.find(item => item.id === activeChat.groupId);
+      const member = group?.members.find(item => item.userId === currentUser.id);
+      return member?.permissions.viewMessages !== false && member?.permissions.sendMessages !== false;
+    }
     if (activeChat.type !== 'channel') return true;
     const community = communities.find(c => c.id === activeChat.communityId);
     if (!community) return true;
-    const channel = community.channels.find(ch => ch.id === activeChat.channelId);
-    if (!channel?.isBroadcast) return true;
     const member = community.members.find(m => m.userId === currentUser.id);
-    return member?.role === 'admin' || member?.role === 'moderator';
+    if (!member || member.permissions.viewMessages === false) return false;
+    const channel = community.channels.find(ch => ch.id === activeChat.channelId);
+    const isElevatedRole = member.role === 'owner' || member.role === 'admin' || member.role === 'moderator';
+    if (community.adminsOnlyMessages || channel?.isBroadcast) return isElevatedRole && member.permissions.sendMessages;
+    return member.permissions.sendMessages;
   })();
 
   const handleSend = useCallback(() => {
@@ -218,7 +225,7 @@ export default function ChatInput({ replyTo, onCancelReply, editingMsg, onCancel
   if (!canSend) {
     return (
       <div className="px-4 py-4 bg-card border-t border-border text-center text-sm text-muted-foreground">
-        {blockedDm ? 'You blocked this user. Unblock them from the chat menu to send messages again.' : '🔒 Only admins and moderators can send messages in this broadcast channel'}
+        {blockedDm ? 'You blocked this user. Unblock them from the chat menu to send messages again.' : '🔒 You do not have permission to send messages in this space.'}
       </div>
     );
   }
