@@ -5,6 +5,7 @@ import { isValidObjectId, Types } from 'mongoose';
 import { Server } from 'socket.io';
 
 import { connectToDatabase } from './db.js';
+import { sendLoginAlert, sendWelcomeEmail, verifyMailer } from './mailer.js';
 import { Chat, Message, User } from './models.js';
 
 const PORT = Number(process.env.PORT || 3001);
@@ -267,12 +268,30 @@ app.get('/api/health', async (_req, res) => {
   }
 });
 
+app.get('/api/smtp/health', async (_req, res) => {
+  try {
+    const result = await verifyMailer();
+    if (!result.ok) {
+      res.status(400).json(result);
+      return;
+    }
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ ok: false, reason: error.message });
+  }
+});
+
 app.post('/api/auth/login', async (req, res) => {
   try {
     await connectToDatabase();
     const { emailOrUsername, password } = req.body || {};
+    const normalizedLogin = String(emailOrUsername || '').trim();
+    const escapedLogin = normalizedLogin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const user = await User.findOne({
-      $or: [{ email: emailOrUsername }, { username: emailOrUsername }],
+      $or: [
+        { email: new RegExp(`^${escapedLogin}$`, 'i') },
+        { username: new RegExp(`^${escapedLogin}$`, 'i') },
+      ],
     });
 
     if (!user || !(await comparePassword(password, user.password))) {
@@ -284,8 +303,14 @@ app.post('/api/auth/login', async (req, res) => {
     user.lastSeen = new Date();
     await user.save();
 
+    const loginMailResult = await sendLoginAlert({
+      to: user.email,
+      name: user.name,
+      username: user.username,
+    }).catch(error => ({ ok: false, reason: error.message }));
+
     const bootstrap = await buildBootstrap(user._id.toString());
-    res.json({ ok: true, ...bootstrap });
+    res.json({ ok: true, ...bootstrap, mail: loginMailResult });
   } catch (error) {
     res.status(error.statusCode || 500).json({ ok: false, message: error.message });
   }
@@ -323,8 +348,14 @@ app.post('/api/auth/signup', async (req, res) => {
       createdAt: new Date(),
     });
 
+    const welcomeMailResult = await sendWelcomeEmail({
+      to: user.email,
+      name: user.name,
+      username: user.username,
+    }).catch(error => ({ ok: false, reason: error.message }));
+
     const bootstrap = await buildBootstrap(user._id.toString());
-    res.status(201).json({ ok: true, ...bootstrap });
+    res.status(201).json({ ok: true, ...bootstrap, mail: welcomeMailResult });
   } catch (error) {
     res.status(error.statusCode || 500).json({ ok: false, message: error.message });
   }

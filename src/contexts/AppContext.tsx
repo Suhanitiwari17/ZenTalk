@@ -160,8 +160,8 @@ const syncCommunityChannelParticipants = (communityId: string, participantIds: s
 interface AppContextType {
   // Auth
   currentUser: ZenUser | null;
-  login: (emailOrUsername: string, password: string) => Promise<boolean>;
-  signup: (data: Partial<ZenUser>) => Promise<boolean>;
+  login: (emailOrUsername: string, password: string) => Promise<{ ok: boolean; message?: string }>;
+  signup: (data: Partial<ZenUser>) => Promise<{ ok: boolean; message?: string }>;
   logout: () => void;
   updateProfile: (patch: Partial<ZenUser>) => void;
   toggleBlockedUser: (userId: string) => void;
@@ -1108,28 +1108,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // Auth
-  const login = useCallback(async (emailOrUsername: string, password: string): Promise<boolean> => {
+  const login = useCallback(async (emailOrUsername: string, password: string): Promise<{ ok: boolean; message?: string }> => {
     try {
       const payload = await loginWithApi(emailOrUsername, password);
       hydrateBackendState(payload);
-      return true;
-    } catch {
+      return { ok: true };
+    } catch (error) {
       store.initMockData();
       const users = store.getUsers();
       const user = users.find(u =>
         (u.email === emailOrUsername || u.username === emailOrUsername) && u.password === password
       );
-      if (!user) return false;
+      if (!user) {
+        return { ok: false, message: error instanceof Error ? error.message : 'Invalid email/username or password.' };
+      }
       store.setSession({ userId: user.id, loginAt: Date.now() });
       store.updateUser(user.id, { status: 'online', lastSeen: Date.now() });
       setCurrentUser({ ...user, status: 'online' });
       setAllUsers(store.getUsers());
       setBackendMode(false);
-      return true;
+      return { ok: true };
     }
   }, [hydrateBackendState]);
 
-  const signup = useCallback(async (data: Partial<ZenUser>): Promise<boolean> => {
+  const signup = useCallback(async (data: Partial<ZenUser>): Promise<{ ok: boolean; message?: string }> => {
     try {
       const payload = await signupWithApi({
         name: data.name || '',
@@ -1140,10 +1142,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         avatar: data.avatar || '🧑',
       });
       hydrateBackendState(payload);
-      return true;
-    } catch {
+      return { ok: true };
+    } catch (error) {
       const users = store.getUsers();
-      if (users.find(u => u.email === data.email || u.username === data.username)) return false;
+      if (users.find(u => u.email === data.email || u.username === data.username)) {
+        return { ok: false, message: error instanceof Error ? error.message : 'Email or username already taken.' };
+      }
       const newUser: ZenUser = {
         id: store.genId(),
         name: data.name || '',
@@ -1163,7 +1167,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setCurrentUser(newUser);
       setAllUsers(store.getUsers());
       setBackendMode(false);
-      return true;
+      return { ok: true };
     }
   }, [hydrateBackendState]);
 
