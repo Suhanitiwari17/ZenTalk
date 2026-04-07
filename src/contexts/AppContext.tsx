@@ -837,6 +837,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     const socket = io(SIGNALING_SERVER_URL, {
       transports: ['websocket', 'polling'],
+      autoConnect: false,
     });
 
     socketRef.current = socket;
@@ -1038,6 +1039,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     socket.on('call-control-updated', handleRemoteControls);
     socket.on('call-failed', handleCallFailed);
     socket.on('message-created', handleRealtimeMessage);
+    socket.connect();
+    registerCurrentUser();
 
     return () => {
       socket.off('connect', registerCurrentUser);
