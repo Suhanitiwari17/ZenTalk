@@ -6,6 +6,7 @@ import ChatInput from './ChatInput';
 import ChatHeader from './ChatHeader';
 import { MessageCircle } from 'lucide-react';
 import { motion } from 'motion/react';
+import UserAvatar from '@/components/ui/user-avatar';
 
 function DateSeparator({ date }: { date: string }) {
   return (
@@ -54,7 +55,12 @@ function ForwardModal({ message, onClose }: { message: ZenMessage; onClose: () =
               <input type="checkbox" checked={selected.includes(chat.id)}
                 onChange={e => setSelected(p => e.target.checked ? [...p, chat.id] : p.filter(id => id !== chat.id))}
                 className="w-4 h-4 rounded accent-primary" />
-              <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-lg">{chat.avatar}</div>
+              <UserAvatar
+                avatar={chat.avatar}
+                name={chat.name}
+                className="h-9 w-9 text-lg"
+                fallbackClassName="bg-primary/10 text-lg"
+              />
               <span className="text-sm font-medium text-foreground">{chat.name}</span>
             </label>
           ))}
