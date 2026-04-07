@@ -7,7 +7,27 @@ import type {
   ZenUser,
 } from './zentalk-types';
 
-const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
+function resolveApiBase() {
+  const configured = import.meta.env.VITE_API_URL;
+  if (typeof window === 'undefined') return configured ?? 'http://localhost:3001';
+
+  const fallback = `${window.location.protocol}//${window.location.hostname}:3001`;
+  if (!configured) return fallback;
+
+  try {
+    const url = new URL(configured);
+    if ((url.hostname === 'localhost' || url.hostname === '127.0.0.1') && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      url.hostname = window.location.hostname;
+      return url.toString().replace(/\/$/, '');
+    }
+  } catch {
+    return fallback;
+  }
+
+  return configured;
+}
+
+const API_BASE = resolveApiBase();
 
 interface BootstrapPayload {
   ok: boolean;
@@ -21,6 +41,12 @@ interface BootstrapPayload {
   message?: string;
 }
 
+interface OtpRequestPayload {
+  ok: boolean;
+  requestId: string;
+  message?: string;
+}
+
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     headers: {
@@ -30,7 +56,21 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
   });
 
-  const data = await response.json();
+  const raw = await response.text();
+  let data: any = null;
+
+  try {
+    data = raw ? JSON.parse(raw) : null;
+  } catch {
+    if (!response.ok) {
+      if (raw.trim().startsWith('<!DOCTYPE') || raw.trim().startsWith('<html')) {
+        throw new Error('The ZenTalk backend returned an HTML page instead of the API response. Restart the backend server and try again.');
+      }
+      throw new Error(raw || 'Request failed');
+    }
+    throw new Error('The server returned an invalid response.');
+  }
+
   if (!response.ok) {
     throw new Error(data?.message || 'Request failed');
   }
@@ -52,11 +92,18 @@ export async function signupWithApi(payload: {
   name: string;
   username: string;
   email: string;
-  mobile?: string;
+  mobile: string;
   password: string;
   avatar?: string;
 }) {
-  return apiFetch<BootstrapPayload>('/api/auth/signup', {
+  return apiFetch<OtpRequestPayload>('/api/auth/signup/request-otp', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function verifySignupOtpWithApi(payload: { requestId: string; otp: string }) {
+  return apiFetch<BootstrapPayload>('/api/auth/signup/verify-otp', {
     method: 'POST',
     body: JSON.stringify(payload),
   });
