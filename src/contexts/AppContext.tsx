@@ -2,7 +2,8 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { io, type Socket } from 'socket.io-client';
 import type {
   ZenUser, ZenChat, ZenMessage, ZenGroup, ZenCommunity,
-  ZenContact, ZenSettings, ZenCall, CallType, ZenCallControls, ZenRemoteParticipant, ZenCallShortcut
+  ZenContact, ZenSettings, ZenCall, CallType, ZenCallControls, ZenRemoteParticipant, ZenCallShortcut,
+  MemberPermissions, RoleLabels, UserRole
 } from '@/lib/zentalk-types';
 import * as store from '@/lib/zentalk-store';
 import { createPeerConnection, getLocalStream, setAudioEnabled, setVideoEnabled, stopStream } from '@/lib/webrtc';
@@ -85,6 +86,69 @@ const createDefaultCallControls = (type: CallType = 'audio'): ZenCallControls =>
   connectionState: 'idle',
 });
 
+const DEFAULT_COMMUNITY_ROLE_LABELS: RoleLabels = {
+  owner: 'Owner',
+  admin: 'Admin',
+  moderator: 'Moderator',
+  member: 'Member',
+};
+
+const buildPermissions = (role: UserRole): MemberPermissions => {
+  if (role === 'owner' || role === 'admin') {
+    return {
+      sendMessages: true,
+      deleteMessages: true,
+      addGroup: true,
+      removeGroup: true,
+      addMember: true,
+      removeMember: true,
+      addChannel: true,
+      removeChannel: true,
+      assignPositions: true,
+      adminsOnlyMessagesToggle: true,
+      viewMessages: true,
+    };
+  }
+
+  if (role === 'moderator') {
+    return {
+      sendMessages: true,
+      deleteMessages: true,
+      addGroup: false,
+      removeGroup: false,
+      addMember: true,
+      removeMember: false,
+      addChannel: false,
+      removeChannel: false,
+      assignPositions: false,
+      adminsOnlyMessagesToggle: false,
+      viewMessages: true,
+    };
+  }
+
+  return {
+    sendMessages: true,
+    deleteMessages: false,
+    addGroup: false,
+    removeGroup: false,
+    addMember: false,
+    removeMember: false,
+    addChannel: false,
+    removeChannel: false,
+    assignPositions: false,
+    adminsOnlyMessagesToggle: false,
+    viewMessages: true,
+  };
+};
+
+const syncCommunityChannelParticipants = (communityId: string, participantIds: string[]) => {
+  store.setChats(store.getChats().map(chat =>
+    chat.communityId === communityId && chat.type === 'channel'
+      ? { ...chat, participants: participantIds }
+      : chat
+  ));
+};
+
 interface AppContextType {
   // Auth
   currentUser: ZenUser | null;
@@ -125,11 +189,19 @@ interface AppContextType {
 
   // Communities
   communities: ZenCommunity[];
-  createCommunity: (name: string, icon: string, description: string) => void;
+  createCommunity: (name: string, icon: string, description: string, options?: { roleLabels?: Partial<RoleLabels>; adminsOnlyMessages?: boolean; memberIds?: string[] }) => void;
   addChannelToCommunity: (communityId: string, channelName: string, description: string, isBroadcast: boolean, isTemporary: boolean, expiresAt?: number) => void;
   addGroupToCommunity: (communityId: string, groupId: string) => void;
-  updateMemberPermissions: (communityId: string, userId: string, permissions: Partial<import('@/lib/zentalk-types').MemberPermissions>) => void;
-  updateGroupMemberPermissions: (groupId: string, userId: string, permissions: Partial<import('@/lib/zentalk-types').MemberPermissions>) => void;
+  removeGroupFromCommunity: (communityId: string, groupId: string) => void;
+  createCommunityGroup: (communityId: string, name: string, icon: string, description: string, memberIds: string[], isTemporary: boolean, expiresAt?: number) => void;
+  addMemberToCommunity: (communityId: string, userId: string, role?: UserRole) => void;
+  removeMemberFromCommunity: (communityId: string, userId: string) => void;
+  updateCommunityRole: (communityId: string, userId: string, role: UserRole) => void;
+  updateCommunityRoleLabels: (communityId: string, labels: Partial<RoleLabels>) => void;
+  toggleCommunityAdminsOnlyMessages: (communityId: string, value: boolean) => void;
+  updateMemberPermissions: (communityId: string, userId: string, permissions: Partial<MemberPermissions>) => void;
+  updateGroupMemberPermissions: (groupId: string, userId: string, permissions: Partial<MemberPermissions>) => void;
+  updateGroupMemberRole: (groupId: string, userId: string, role: UserRole) => void;
   refreshCommunities: () => void;
 
   // Contacts
@@ -1085,8 +1157,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const group: ZenGroup = {
       id: groupId, name, icon, description,
       members: allMemberIds.map((userId, i) => ({
-        userId, role: i === 0 ? 'admin' : 'member',
-        permissions: { messaging: true, memberManagement: i === 0, channelCreation: i === 0 },
+        userId, role: i === 0 ? 'owner' : 'member',
+        permissions: buildPermissions(i === 0 ? 'owner' : 'member'),
         joinedAt: Date.now(),
       })),
       createdBy: currentUser.id, createdAt: Date.now(), isTemporary, expiresAt,
@@ -1113,8 +1185,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const group = store.getGroupById(groupId);
     if (!group) return;
     const newMembers = group.members.filter(m => m.userId !== currentUser.id);
-    if (newMembers.length > 0 && group.members.find(m => m.userId === currentUser.id)?.role === 'admin') {
-      newMembers[0].role = 'admin';
+    if (newMembers.length > 0 && ['owner', 'admin'].includes(group.members.find(m => m.userId === currentUser.id)?.role || '')) {
+      newMembers[0].role = 'owner';
+      newMembers[0].permissions = buildPermissions('owner');
     }
     store.updateGroup(groupId, { members: newMembers });
     const chatId = `chat-group-${groupId}`;
@@ -1132,27 +1205,37 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [refreshGroups]);
 
   // Communities
-  const createCommunity = useCallback((name: string, icon: string, description: string) => {
+  const createCommunity = useCallback((name: string, icon: string, description: string, options?: { roleLabels?: Partial<RoleLabels>; adminsOnlyMessages?: boolean; memberIds?: string[] }) => {
     if (!currentUser) return;
     const communityId = store.genId();
     const channelId = store.genId();
+    const roleLabels = { ...DEFAULT_COMMUNITY_ROLE_LABELS, ...(options?.roleLabels ?? {}) };
+    const memberIds = Array.from(new Set([currentUser.id, ...(options?.memberIds ?? [])]));
     const community: ZenCommunity = {
       id: communityId, name, icon, description,
       channels: [{ id: channelId, name: 'general', description: 'General discussion', isBroadcast: false, createdAt: Date.now() }],
-      members: [{ userId: currentUser.id, role: 'admin', permissions: { messaging: true, memberManagement: true, channelCreation: true } }],
+      linkedGroupIds: [],
+      members: memberIds.map(userId => ({
+        userId,
+        role: userId === currentUser.id ? 'owner' : 'member',
+        permissions: buildPermissions(userId === currentUser.id ? 'owner' : 'member'),
+      })),
+      roleLabels,
+      adminsOnlyMessages: options?.adminsOnlyMessages ?? false,
       createdBy: currentUser.id, createdAt: Date.now(),
     };
     store.addCommunity(community);
     const chat: ZenChat = {
       id: `chat-channel-${channelId}`, type: 'channel', name: '#general', avatar: icon,
-      participants: [currentUser.id], lastMessage: 'Channel created', lastTime: Date.now(),
+      participants: memberIds, lastMessage: 'Channel created', lastTime: Date.now(),
       unreadCount: 0, pinned: false, muted: false, archived: false, wallpaper: '', disappearing: 'off',
       communityId, channelId,
     };
     store.addChat(chat);
     refreshCommunities();
     refreshChats();
-  }, [currentUser, refreshCommunities, refreshChats]);
+    setActiveChat(chat);
+  }, [currentUser, refreshCommunities, refreshChats, setActiveChat]);
 
   const addChannelToCommunity = useCallback((communityId: string, channelName: string, description: string, isBroadcast: boolean, isTemporary: boolean, expiresAt?: number) => {
     if (!currentUser) return;
@@ -1173,11 +1256,141 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [currentUser, refreshCommunities, refreshChats]);
 
   const addGroupToCommunity = useCallback((communityId: string, groupId: string) => {
-    // Links a group to a community by adding a group-type channel reference
+    const community = store.getCommunityById(communityId);
+    const group = store.getGroupById(groupId);
+    if (!community || !group) return;
+    const linkedGroupIds = Array.from(new Set([...community.linkedGroupIds, groupId]));
+    const existingMemberIds = new Set(community.members.map(member => member.userId));
+    const nextMembers = [...community.members];
+    group.members.forEach(member => {
+      if (!existingMemberIds.has(member.userId)) {
+        nextMembers.push({ userId: member.userId, role: 'member', permissions: buildPermissions('member') });
+      }
+    });
+    store.updateCommunity(communityId, { linkedGroupIds, members: nextMembers });
+    syncCommunityChannelParticipants(communityId, nextMembers.map(member => member.userId));
+    refreshCommunities();
+    refreshChats();
+  }, [refreshChats, refreshCommunities]);
+
+  const removeGroupFromCommunity = useCallback((communityId: string, groupId: string) => {
+    const community = store.getCommunityById(communityId);
+    if (!community) return;
+    store.updateCommunity(communityId, {
+      linkedGroupIds: community.linkedGroupIds.filter(id => id !== groupId),
+    });
+    refreshCommunities();
+    refreshChats();
+  }, [refreshChats, refreshCommunities]);
+
+  const createCommunityGroup = useCallback((communityId: string, name: string, icon: string, description: string, memberIds: string[], isTemporary: boolean, expiresAt?: number) => {
+    if (!currentUser) return;
+    const community = store.getCommunityById(communityId);
+    if (!community) return;
+    const groupId = store.genId();
+    const chatId = `chat-group-${groupId}`;
+    const allMemberIds = Array.from(new Set([currentUser.id, ...memberIds]));
+    const group: ZenGroup = {
+      id: groupId,
+      name,
+      icon,
+      description,
+      members: allMemberIds.map((userId, index) => ({
+        userId,
+        role: index === 0 ? 'owner' : 'member',
+        permissions: buildPermissions(index === 0 ? 'owner' : 'member'),
+        joinedAt: Date.now(),
+      })),
+      createdBy: currentUser.id,
+      createdAt: Date.now(),
+      isTemporary,
+      expiresAt,
+    };
+    store.addGroup(group);
+    store.addChat({
+      id: chatId,
+      type: 'group',
+      name,
+      avatar: icon,
+      participants: allMemberIds,
+      lastMessage: 'Group created inside community',
+      lastTime: Date.now(),
+      unreadCount: 0,
+      pinned: false,
+      muted: false,
+      archived: false,
+      wallpaper: '',
+      disappearing: 'off',
+      groupId,
+      communityId,
+    });
+    const existingMembers = new Set(community.members.map(member => member.userId));
+    store.updateCommunity(communityId, {
+      linkedGroupIds: Array.from(new Set([...community.linkedGroupIds, groupId])),
+      members: [
+        ...community.members,
+        ...allMemberIds
+          .filter(userId => !existingMembers.has(userId))
+          .map(userId => ({ userId, role: 'member' as const, permissions: buildPermissions('member') })),
+      ],
+    });
+    syncCommunityChannelParticipants(communityId, Array.from(new Set([...community.members.map(member => member.userId), ...allMemberIds])));
+    refreshGroups();
+    refreshCommunities();
+    refreshChats();
+  }, [currentUser, refreshChats, refreshCommunities, refreshGroups]);
+
+  const addMemberToCommunity = useCallback((communityId: string, userId: string, role: UserRole = 'member') => {
+    const community = store.getCommunityById(communityId);
+    if (!community) return;
+    if (community.members.some(member => member.userId === userId)) return;
+    store.updateCommunity(communityId, {
+      members: [...community.members, { userId, role, permissions: buildPermissions(role) }],
+    });
+    syncCommunityChannelParticipants(communityId, [...community.members.map(member => member.userId), userId]);
+    refreshCommunities();
+    refreshChats();
+  }, [refreshChats, refreshCommunities]);
+
+  const removeMemberFromCommunity = useCallback((communityId: string, userId: string) => {
+    const community = store.getCommunityById(communityId);
+    if (!community) return;
+    store.updateCommunity(communityId, {
+      members: community.members.filter(member => member.userId !== userId),
+    });
+    syncCommunityChannelParticipants(communityId, community.members.filter(member => member.userId !== userId).map(member => member.userId));
+    refreshCommunities();
+    refreshChats();
+  }, [refreshChats, refreshCommunities]);
+
+  const updateCommunityRole = useCallback((communityId: string, userId: string, role: UserRole) => {
+    const community = store.getCommunityById(communityId);
+    if (!community) return;
+    store.updateCommunity(communityId, {
+      members: community.members.map(member =>
+        member.userId === userId ? { ...member, role, permissions: { ...member.permissions, ...buildPermissions(role) } } : member
+      ),
+    });
     refreshCommunities();
   }, [refreshCommunities]);
 
-  const updateMemberPermissions = useCallback((communityId: string, userId: string, permissions: Partial<import('@/lib/zentalk-types').MemberPermissions>) => {
+  const updateCommunityRoleLabels = useCallback((communityId: string, labels: Partial<RoleLabels>) => {
+    const community = store.getCommunityById(communityId);
+    if (!community) return;
+    store.updateCommunity(communityId, {
+      roleLabels: { ...community.roleLabels, ...labels },
+    });
+    refreshCommunities();
+  }, [refreshCommunities]);
+
+  const toggleCommunityAdminsOnlyMessages = useCallback((communityId: string, value: boolean) => {
+    const community = store.getCommunityById(communityId);
+    if (!community) return;
+    store.updateCommunity(communityId, { adminsOnlyMessages: value });
+    refreshCommunities();
+  }, [refreshCommunities]);
+
+  const updateMemberPermissions = useCallback((communityId: string, userId: string, permissions: Partial<MemberPermissions>) => {
     const community = store.getCommunityById(communityId);
     if (!community) return;
     store.updateCommunity(communityId, {
@@ -1188,12 +1401,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     refreshCommunities();
   }, [refreshCommunities]);
 
-  const updateGroupMemberPermissions = useCallback((groupId: string, userId: string, permissions: Partial<import('@/lib/zentalk-types').MemberPermissions>) => {
+  const updateGroupMemberPermissions = useCallback((groupId: string, userId: string, permissions: Partial<MemberPermissions>) => {
     const group = store.getGroupById(groupId);
     if (!group) return;
     store.updateGroup(groupId, {
       members: group.members.map(m =>
         m.userId === userId ? { ...m, permissions: { ...m.permissions, ...permissions } } : m
+      ),
+    });
+    refreshGroups();
+  }, [refreshGroups]);
+
+  const updateGroupMemberRole = useCallback((groupId: string, userId: string, role: UserRole) => {
+    const group = store.getGroupById(groupId);
+    if (!group) return;
+    store.updateGroup(groupId, {
+      members: group.members.map(member =>
+        member.userId === userId ? { ...member, role, permissions: { ...member.permissions, ...buildPermissions(role) } } : member
       ),
     });
     refreshGroups();
@@ -1481,7 +1705,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     messages, sendMessage, editMessage, deleteMessage, deleteMessageForEveryone, forwardMessage, toggleStar, refreshMessages,
     groups, createGroup, updateGroup, leaveGroup, kickMember, refreshGroups,
     communities, createCommunity, addChannelToCommunity, addGroupToCommunity,
-    updateMemberPermissions, updateGroupMemberPermissions, refreshCommunities,
+    removeGroupFromCommunity, createCommunityGroup, addMemberToCommunity, removeMemberFromCommunity,
+    updateCommunityRole, updateCommunityRoleLabels, toggleCommunityAdminsOnlyMessages,
+    updateMemberPermissions, updateGroupMemberPermissions, updateGroupMemberRole, refreshCommunities,
     contacts, callShortcuts, addContact, saveCallShortcut, deleteCallShortcut, startChatWithUser, startDirectCallByUserId, startGroupCall, refreshContacts,
     settings, updateSettings, notificationPermission, requestNotificationPermission, sendTestNotification,
     activeCall, incomingCall, localCallStream, remoteCallStream, remoteParticipants, callControls, callError, callDuration,
