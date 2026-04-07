@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useApp } from '@/contexts/AppContext';
 import { X, Users, Clock } from 'lucide-react';
+import UserAvatar from '@/components/ui/user-avatar';
 
 const ICONS = ['👥', '🚀', '💼', '🎯', '🔥', '⚡', '🌟', '🎮', '🎨', '🏆', '🌍', '💡', '🎵', '📚', '🏋️'];
 
@@ -85,7 +86,7 @@ export default function CreateGroupModal() {
               </div>
               <button onClick={() => setIsTemporary(p => !p)}
                 className={`w-11 h-6 rounded-full transition-colors relative ${isTemporary ? 'bg-primary' : 'bg-muted-foreground/30'}`}>
-                <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${isTemporary ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                <span className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${isTemporary ? 'translate-x-[0.9rem]' : 'translate-x-0'}`} />
               </button>
             </div>
             {isTemporary && (
@@ -114,7 +115,12 @@ export default function CreateGroupModal() {
                   <input type="checkbox" checked={selectedMembers.includes(user.id)}
                     onChange={() => toggleMember(user.id)}
                     className="w-4 h-4 rounded accent-primary" />
-                  <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-lg">{user.avatar}</div>
+                  <UserAvatar
+                    avatar={user.avatar}
+                    name={user.name}
+                    className="h-9 w-9 text-lg"
+                    fallbackClassName="bg-primary/10 text-lg"
+                  />
                   <div>
                     <p className="text-sm font-medium text-foreground">{user.name}</p>
                     <p className="text-xs text-muted-foreground">@{user.username}</p>
