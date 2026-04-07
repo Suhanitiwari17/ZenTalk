@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useApp } from '@/contexts/AppContext';
 import { X, Globe, Shield, Megaphone, UserPlus } from 'lucide-react';
+import UserAvatar from '@/components/ui/user-avatar';
 
 const ICONS = ['🌐', '🏢', '🎓', '🎮', '🎨', '🚀', '💼', '🌍', '🏆', '📚', '🎵', '💡', '🔬', '🌱', '⚡'];
 
@@ -142,7 +143,7 @@ export default function CreateCommunityModal() {
                 onClick={() => setAdminsOnlyMessages(prev => !prev)}
                 className={`relative h-6 w-10 rounded-full transition-colors ${adminsOnlyMessages ? 'bg-primary' : 'bg-muted-foreground/30'}`}
               >
-                <span className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${adminsOnlyMessages ? 'translate-x-4' : 'translate-x-0'}`} />
+                <span className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${adminsOnlyMessages ? 'translate-x-[0.9rem]' : 'translate-x-0'}`} />
               </button>
             </div>
           </div>
@@ -168,9 +169,12 @@ export default function CreateCommunityModal() {
                     )}
                     className="accent-primary"
                   />
-                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-lg">
-                    {user.avatar}
-                  </div>
+                  <UserAvatar
+                    avatar={user.avatar}
+                    name={user.name}
+                    className="h-9 w-9 text-lg"
+                    fallbackClassName="bg-primary/10 text-lg"
+                  />
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium text-foreground">{user.name}</p>
                     <p className="truncate text-xs text-muted-foreground">@{user.username}</p>
