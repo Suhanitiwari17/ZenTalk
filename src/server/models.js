@@ -50,6 +50,23 @@ const messageSchema = new mongoose.Schema({
   versionKey: false,
 });
 
+const signupOtpSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  username: { type: String, required: true, index: true },
+  email: { type: String, required: true, index: true },
+  mobile: { type: String, default: '' },
+  passwordHash: { type: String, required: true },
+  avatar: { type: String, default: '🧑' },
+  otpHash: { type: String, required: true },
+  expiresAt: { type: Date, required: true, index: true },
+  attempts: { type: Number, default: 0 },
+  createdAt: { type: Date, default: Date.now },
+}, {
+  collection: 'signup_otps',
+  versionKey: false,
+});
+
 export const User = mongoose.models.User || mongoose.model('User', userSchema);
 export const Chat = mongoose.models.Chat || mongoose.model('Chat', chatSchema);
 export const Message = mongoose.models.Message || mongoose.model('Message', messageSchema);
+export const SignupOtp = mongoose.models.SignupOtp || mongoose.model('SignupOtp', signupOtpSchema);

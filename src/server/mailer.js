@@ -90,3 +90,27 @@ export async function sendWelcomeEmail({ to, name, username }) {
 
   return { ok: true };
 }
+
+export async function sendSignupOtpEmail({ to, name, otp }) {
+  const transporter = await getMailer();
+  if (!transporter) return { ok: false, reason: 'SMTP is not configured.' };
+
+  await transporter.sendMail({
+    from: buildFromAddress(),
+    to,
+    subject: 'ZenTalk signup verification code',
+    text: `Hello ${name || 'there'},\n\nYour ZenTalk verification code is ${otp}.\n\nThis code will expire in 10 minutes.\n\nIf you did not request this, you can ignore this email.`,
+    html: `
+      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #111827;">
+        <h2 style="margin-bottom: 12px;">Verify your ZenTalk account</h2>
+        <p>Hello ${name || 'there'},</p>
+        <p>Your verification code is:</p>
+        <div style="margin: 18px 0; font-size: 28px; font-weight: 700; letter-spacing: 0.3em; color: #0f766e;">${otp}</div>
+        <p>This code will expire in 10 minutes.</p>
+        <p>If you did not request this, you can ignore this email.</p>
+      </div>
+    `,
+  });
+
+  return { ok: true };
+}

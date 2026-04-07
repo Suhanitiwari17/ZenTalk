@@ -5,8 +5,8 @@ import { isValidObjectId, Types } from 'mongoose';
 import { Server } from 'socket.io';
 
 import { connectToDatabase } from './db.js';
-import { sendLoginAlert, sendWelcomeEmail, verifyMailer } from './mailer.js';
-import { Chat, Message, User } from './models.js';
+import { sendLoginAlert, sendSignupOtpEmail, sendWelcomeEmail, verifyMailer } from './mailer.js';
+import { Chat, Message, SignupOtp, User } from './models.js';
 
 const PORT = Number(process.env.PORT || 3001);
 
@@ -33,6 +33,8 @@ app.use((req, res, next) => {
 const userSockets = new Map();
 const socketUsers = new Map();
 const callRooms = new Map();
+const SIGNUP_OTP_TTL_MS = 10 * 60 * 1000;
+const MAX_OTP_ATTEMPTS = 5;
 
 function getSocketSet(userId) {
   if (!userSockets.has(userId)) {
@@ -172,6 +174,27 @@ async function comparePassword(inputPassword, storedPassword) {
   return inputPassword === storedPassword;
 }
 
+function escapeForRegex(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function generateOtpCode() {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+function isValidEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
+}
+
+function normalizeMobile(value) {
+  return String(value || '').replace(/\D/g, '');
+}
+
+function isValidMobile(value) {
+  const digits = normalizeMobile(value);
+  return digits.length >= 10 && digits.length <= 15;
+}
+
 async function findOrCreateDirectChat(userIdA, userIdB) {
   const participantIds = [userIdA, userIdB].sort();
   let chat = await Chat.findOne({
@@ -286,7 +309,7 @@ app.post('/api/auth/login', async (req, res) => {
     await connectToDatabase();
     const { emailOrUsername, password } = req.body || {};
     const normalizedLogin = String(emailOrUsername || '').trim();
-    const escapedLogin = normalizedLogin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const escapedLogin = escapeForRegex(normalizedLogin);
     const user = await User.findOne({
       $or: [
         { email: new RegExp(`^${escapedLogin}$`, 'i') },
@@ -316,37 +339,144 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-app.post('/api/auth/signup', async (req, res) => {
+app.post('/api/auth/signup/request-otp', async (req, res) => {
   try {
     await connectToDatabase();
     const { name, username, email, mobile, password, avatar } = req.body || {};
-    if (!name || !username || !email || !password) {
+    if (!name || !username || !email || !mobile || !password) {
       res.status(400).json({ ok: false, message: 'Missing required fields.' });
+      return;
+    }
+    if (String(password).length < 6) {
+      res.status(400).json({ ok: false, message: 'Password must be at least 6 characters.' });
+      return;
+    }
+    if (!isValidEmail(email)) {
+      res.status(400).json({ ok: false, message: 'Enter a valid email address.' });
+      return;
+    }
+    if (!isValidMobile(mobile)) {
+      res.status(400).json({ ok: false, message: 'Enter a valid mobile number with 10 to 15 digits.' });
+      return;
+    }
+
+    const smtpCheck = await verifyMailer();
+    if (!smtpCheck.ok) {
+      res.status(400).json({ ok: false, message: smtpCheck.reason || 'SMTP is not configured.' });
+      return;
+    }
+
+    const normalizedEmail = String(email).trim().toLowerCase();
+    const normalizedUsername = String(username).trim();
+    const normalizedMobile = normalizeMobile(mobile);
+    const emailRegex = new RegExp(`^${escapeForRegex(normalizedEmail)}$`, 'i');
+    const usernameRegex = new RegExp(`^${escapeForRegex(normalizedUsername)}$`, 'i');
+
+    const existing = await User.findOne({
+      $or: [{ email: emailRegex }, { username: usernameRegex }, { mobile: normalizedMobile }],
+    });
+    if (existing) {
+      res.status(409).json({ ok: false, message: 'Email, username, or mobile number is already taken.' });
+      return;
+    }
+
+    await SignupOtp.deleteMany({
+      $or: [{ email: emailRegex }, { username: usernameRegex }],
+    });
+
+    const otp = generateOtpCode();
+    const otpHash = await bcrypt.hash(otp, 10);
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const request = await SignupOtp.create({
+      name,
+      username: normalizedUsername,
+      email: normalizedEmail,
+      mobile: normalizedMobile,
+      passwordHash: hashedPassword,
+      avatar: avatar || '🧑',
+      otpHash,
+      expiresAt: new Date(Date.now() + SIGNUP_OTP_TTL_MS),
+      createdAt: new Date(),
+    });
+
+    await sendSignupOtpEmail({
+      to: normalizedEmail,
+      name,
+      otp,
+    });
+
+    res.status(201).json({
+      ok: true,
+      requestId: request._id.toString(),
+      message: `Verification code sent to ${normalizedEmail}.`,
+    });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ ok: false, message: error.message });
+  }
+});
+
+app.post('/api/auth/signup/verify-otp', async (req, res) => {
+  try {
+    await connectToDatabase();
+    const { requestId, otp } = req.body || {};
+    if (!isValidObjectId(requestId) || !otp) {
+      res.status(400).json({ ok: false, message: 'Invalid verification request.' });
+      return;
+    }
+
+    const request = await SignupOtp.findById(requestId);
+    if (!request) {
+      res.status(404).json({ ok: false, message: 'Verification request not found. Please request a new code.' });
+      return;
+    }
+
+    if (new Date(request.expiresAt).getTime() < Date.now()) {
+      await SignupOtp.findByIdAndDelete(requestId);
+      res.status(410).json({ ok: false, message: 'This verification code has expired. Please request a new one.' });
+      return;
+    }
+
+    const validOtp = await bcrypt.compare(String(otp).trim(), request.otpHash);
+    if (!validOtp) {
+      request.attempts = Number(request.attempts || 0) + 1;
+      if (request.attempts >= MAX_OTP_ATTEMPTS) {
+        await SignupOtp.findByIdAndDelete(requestId);
+        res.status(429).json({ ok: false, message: 'Too many incorrect attempts. Please request a new code.' });
+        return;
+      }
+      await request.save();
+      res.status(401).json({ ok: false, message: 'Incorrect verification code.' });
       return;
     }
 
     const existing = await User.findOne({
-      $or: [{ email }, { username }],
+      $or: [
+        { email: new RegExp(`^${escapeForRegex(request.email)}$`, 'i') },
+        { username: new RegExp(`^${escapeForRegex(request.username)}$`, 'i') },
+        { mobile: request.mobile },
+      ],
     });
     if (existing) {
-      res.status(409).json({ ok: false, message: 'Email or username already taken.' });
+      await SignupOtp.findByIdAndDelete(requestId);
+      res.status(409).json({ ok: false, message: 'Email, username, or mobile number is already taken.' });
       return;
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
     const user = await User.create({
-      name,
-      username,
-      email,
-      mobile: mobile || '',
-      password: hashedPassword,
-      avatar: avatar || '🧑',
+      name: request.name,
+      username: request.username,
+      email: request.email,
+      mobile: request.mobile || '',
+      password: request.passwordHash,
+      avatar: request.avatar || '🧑',
       bio: 'Hey there! I am using ZenTalk.',
       blockedUserIds: [],
       status: 'online',
       lastSeen: new Date(),
       createdAt: new Date(),
     });
+
+    await SignupOtp.findByIdAndDelete(requestId);
 
     const welcomeMailResult = await sendWelcomeEmail({
       to: user.email,
@@ -355,7 +485,7 @@ app.post('/api/auth/signup', async (req, res) => {
     }).catch(error => ({ ok: false, reason: error.message }));
 
     const bootstrap = await buildBootstrap(user._id.toString());
-    res.status(201).json({ ok: true, ...bootstrap, mail: welcomeMailResult });
+    res.status(201).json({ ok: true, ...bootstrap, mail: welcomeMailResult, message: 'Email verified successfully.' });
   } catch (error) {
     res.status(error.statusCode || 500).json({ ok: false, message: error.message });
   }
