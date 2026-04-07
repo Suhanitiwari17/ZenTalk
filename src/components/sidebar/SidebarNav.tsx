@@ -3,7 +3,8 @@ import { useApp } from '@/contexts/AppContext';
 import {
   MessageCircle, Users, Globe, Phone, Search, Plus, MoreVertical,
   Settings, Star, Archive, LogOut, Moon, Sun, UserPlus,
-  Pin, PinOff, Trash2, VolumeX, Volume2, Hash, Megaphone, Clock, Video, UserRoundPlus
+  Pin, PinOff, Trash2, VolumeX, Volume2, Hash, Megaphone, Clock, Video, UserRoundPlus,
+  ChevronDown, ChevronRight
 } from 'lucide-react';
 import type { ZenChat } from '@/lib/zentalk-types';
 import * as store from '@/lib/zentalk-store';
@@ -91,6 +92,8 @@ export default function SidebarNav() {
   const [dialLabel, setDialLabel] = useState('');
   const [dialNumber, setDialNumber] = useState('');
   const [dialError, setDialError] = useState('');
+  const [expandedCommunities, setExpandedCommunities] = useState<Record<string, boolean>>({});
+  const [expandedCommunitySections, setExpandedCommunitySections] = useState<Record<string, { channels: boolean; groups: boolean }>>({});
   const menuRef = useRef<HTMLDivElement>(null);
 
   const visibleChats = chats.filter(c => {
@@ -144,6 +147,21 @@ export default function SidebarNav() {
     setDialLabel('');
     setDialNumber('');
     setDialError('');
+  };
+
+  const isCommunityExpanded = (communityId: string) => expandedCommunities[communityId] ?? true;
+  const getCommunitySectionState = (communityId: string) => expandedCommunitySections[communityId] ?? { channels: true, groups: true };
+  const toggleCommunityExpanded = (communityId: string) => {
+    setExpandedCommunities(prev => ({ ...prev, [communityId]: !(prev[communityId] ?? true) }));
+  };
+  const toggleCommunitySection = (communityId: string, section: 'channels' | 'groups') => {
+    setExpandedCommunitySections(prev => {
+      const current = prev[communityId] ?? { channels: true, groups: true };
+      return {
+        ...prev,
+        [communityId]: { ...current, [section]: !current[section] },
+      };
+    });
   };
 
   return (
@@ -321,28 +339,56 @@ export default function SidebarNav() {
             </div>
             {normalizedCommunities.map(community => (
               <div key={community.id} className="mb-2">
-                <button
-                  onClick={() => {
-                    const generalChannel = community.channels[0];
-                    const targetChat = chats.find(c => c.channelId === generalChannel?.id);
-                    if (targetChat) {
-                      setActiveChat(targetChat);
-                      setShowInfoPanel(true);
-                    }
-                  }}
-                  className="flex w-full items-center gap-3 px-4 py-2 text-left transition-colors hover:bg-muted/40"
-                >
-                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-lg">
-                    {community.icon}
+                <div className="mx-2 overflow-hidden rounded-2xl border border-border/70 bg-background/60">
+                  <div className="flex items-center gap-3 px-3 py-3">
+                    <button
+                      onClick={() => toggleCommunityExpanded(community.id)}
+                      className="flex min-w-0 flex-1 items-center gap-3 text-left transition-colors hover:opacity-80"
+                    >
+                      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-lg">
+                        {community.icon}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-foreground">{community.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {community.channels.length} channels · {community.linkedGroupIds.length} groups · {community.members.length} members
+                        </p>
+                      </div>
+                      {isCommunityExpanded(community.id) ? (
+                        <ChevronDown className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+                      )}
+                    </button>
+                    <button
+                      onClick={() => {
+                        const generalChannel = community.channels[0];
+                        const targetChat = chats.find(c => c.channelId === generalChannel?.id);
+                        if (targetChat) {
+                          setActiveChat(targetChat);
+                          setShowInfoPanel(true);
+                        }
+                      }}
+                      className="rounded-lg border border-border px-2 py-1 text-[11px] font-medium text-primary transition-colors hover:bg-primary/10"
+                    >
+                      Open
+                    </button>
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-semibold text-foreground">{community.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {community.channels.length} channels · {community.linkedGroupIds.length} groups · {community.members.length} members
-                    </p>
-                  </div>
-                </button>
-                {community.channels.map(ch => {
+
+                  {isCommunityExpanded(community.id) && (
+                    <div className="border-t border-border/70 pb-2">
+                      <button
+                        onClick={() => toggleCommunitySection(community.id, 'channels')}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground transition-colors hover:bg-muted/40"
+                      >
+                        {getCommunitySectionState(community.id).channels ? (
+                          <ChevronDown className="h-3.5 w-3.5" />
+                        ) : (
+                          <ChevronRight className="h-3.5 w-3.5" />
+                        )}
+                        <span>Channels</span>
+                      </button>
+                      {getCommunitySectionState(community.id).channels && community.channels.map(ch => {
                   const chatId = `chat-channel-${ch.id}`;
                   const chat = chats.find(c => c.channelId === ch.id) || {
                     id: chatId, type: 'channel' as const, name: `#${ch.name}`, avatar: community.icon,
@@ -354,7 +400,7 @@ export default function SidebarNav() {
                   if (isExpired) return null;
                   return (
                     <button key={ch.id} onClick={() => setActiveChat(chat as ZenChat)}
-                      className={`w-full flex items-center gap-2 px-8 py-2 text-sm hover:bg-muted/60 transition-colors ${
+                      className={`w-full flex items-center gap-2 px-9 py-2 text-sm hover:bg-muted/60 transition-colors ${
                         activeChat?.channelId === ch.id ? 'text-primary bg-primary/10' : 'text-muted-foreground'
                       }`}>
                       {ch.isBroadcast
@@ -368,14 +414,26 @@ export default function SidebarNav() {
                     </button>
                   );
                 })}
-                {groups.filter(group => community.linkedGroupIds.includes(group.id)).map(group => {
+
+                      <button
+                        onClick={() => toggleCommunitySection(community.id, 'groups')}
+                        className="mt-1 flex w-full items-center gap-2 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground transition-colors hover:bg-muted/40"
+                      >
+                        {getCommunitySectionState(community.id).groups ? (
+                          <ChevronDown className="h-3.5 w-3.5" />
+                        ) : (
+                          <ChevronRight className="h-3.5 w-3.5" />
+                        )}
+                        <span>Groups</span>
+                      </button>
+                      {getCommunitySectionState(community.id).groups && groups.filter(group => community.linkedGroupIds.includes(group.id)).map(group => {
                   const groupChat = chats.find(chat => chat.groupId === group.id);
                   if (!groupChat) return null;
                   return (
                     <button
                       key={group.id}
                       onClick={() => setActiveChat(groupChat)}
-                      className={`w-full flex items-center gap-2 px-8 py-2 text-sm transition-colors ${
+                      className={`w-full flex items-center gap-2 px-9 py-2 text-sm transition-colors ${
                         activeChat?.groupId === group.id ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted/60'
                       }`}
                     >
@@ -387,6 +445,9 @@ export default function SidebarNav() {
                     </button>
                   );
                 })}
+                    </div>
+                  )}
+                </div>
               </div>
             ))}
             {communityChats.filter(c => !communities.some(comm => comm.channels.some(ch => ch.id === c.channelId))).map(chat => (
