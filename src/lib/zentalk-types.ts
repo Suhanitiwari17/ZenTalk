@@ -1,4 +1,4 @@
-export type UserRole = 'admin' | 'moderator' | 'member';
+export type UserRole = 'owner' | 'admin' | 'moderator' | 'member';
 export type MessageStatus = 'sending' | 'sent' | 'delivered' | 'read';
 export type MessageType = 'text' | 'image' | 'video' | 'document' | 'audio';
 export type ChatType = 'dm' | 'group' | 'channel';
@@ -22,9 +22,17 @@ export interface ZenUser {
 }
 
 export interface MemberPermissions {
-  messaging: boolean;
-  memberManagement: boolean;
-  channelCreation: boolean;
+  sendMessages: boolean;
+  deleteMessages: boolean;
+  addGroup: boolean;
+  removeGroup: boolean;
+  addMember: boolean;
+  removeMember: boolean;
+  addChannel: boolean;
+  removeChannel: boolean;
+  assignPositions: boolean;
+  adminsOnlyMessagesToggle: boolean;
+  viewMessages: boolean;
 }
 
 export interface GroupMember {
@@ -62,13 +70,23 @@ export interface CommunityMember {
   permissions: MemberPermissions;
 }
 
+export interface RoleLabels {
+  owner: string;
+  admin: string;
+  moderator: string;
+  member: string;
+}
+
 export interface ZenCommunity {
   id: string;
   name: string;
   icon: string;
   description: string;
   channels: ZenChannel[];
+  linkedGroupIds: string[];
   members: CommunityMember[];
+  roleLabels: RoleLabels;
+  adminsOnlyMessages: boolean;
   createdBy: string;
   createdAt: number;
 }

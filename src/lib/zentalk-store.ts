@@ -1,6 +1,6 @@
 import type {
   ZenUser, ZenChat, ZenMessage, ZenGroup, ZenCommunity,
-  ZenContact, ZenSettings, ZenSession, ZenCallShortcut
+  ZenContact, ZenSettings, ZenSession, ZenCallShortcut, MemberPermissions, RoleLabels, UserRole
 } from './zentalk-types';
 
 const KEYS = {
@@ -84,7 +84,17 @@ export const updateGroup = (id: string, patch: Partial<ZenGroup>) => {
 };
 
 // Communities
-export const getCommunities = (): ZenCommunity[] => get(KEYS.COMMUNITIES, []);
+export const getCommunities = (): ZenCommunity[] => get(KEYS.COMMUNITIES, []).map((community: ZenCommunity) => ({
+  ...community,
+  channels: community.channels ?? [],
+  linkedGroupIds: community.linkedGroupIds ?? [],
+  members: community.members ?? [],
+  roleLabels: {
+    ...DEFAULT_ROLE_LABELS,
+    ...(community.roleLabels ?? {}),
+  },
+  adminsOnlyMessages: community.adminsOnlyMessages ?? false,
+}));
 export const setCommunities = (c: ZenCommunity[]) => set(KEYS.COMMUNITIES, c);
 export const getCommunityById = (id: string) => getCommunities().find(c => c.id === id);
 export const addCommunity = (c: ZenCommunity) => setCommunities([...getCommunities(), c]);
@@ -127,6 +137,77 @@ export const toggleStarred = (msgId: string) => {
 
 // Utilities
 export const genId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+const DEFAULT_ROLE_LABELS: RoleLabels = {
+  owner: 'Owner',
+  admin: 'Admin',
+  moderator: 'Moderator',
+  member: 'Member',
+};
+
+function buildPermissions(role: UserRole): MemberPermissions {
+  if (role === 'owner') {
+    return {
+      sendMessages: true,
+      deleteMessages: true,
+      addGroup: true,
+      removeGroup: true,
+      addMember: true,
+      removeMember: true,
+      addChannel: true,
+      removeChannel: true,
+      assignPositions: true,
+      adminsOnlyMessagesToggle: true,
+      viewMessages: true,
+    };
+  }
+
+  if (role === 'admin') {
+    return {
+      sendMessages: true,
+      deleteMessages: true,
+      addGroup: true,
+      removeGroup: true,
+      addMember: true,
+      removeMember: true,
+      addChannel: true,
+      removeChannel: true,
+      assignPositions: true,
+      adminsOnlyMessagesToggle: true,
+      viewMessages: true,
+    };
+  }
+
+  if (role === 'moderator') {
+    return {
+      sendMessages: true,
+      deleteMessages: true,
+      addGroup: false,
+      removeGroup: false,
+      addMember: true,
+      removeMember: false,
+      addChannel: false,
+      removeChannel: false,
+      assignPositions: false,
+      adminsOnlyMessagesToggle: false,
+      viewMessages: true,
+    };
+  }
+
+  return {
+    sendMessages: true,
+    deleteMessages: false,
+    addGroup: false,
+    removeGroup: false,
+    addMember: false,
+    removeMember: false,
+    addChannel: false,
+    removeChannel: false,
+    assignPositions: false,
+    adminsOnlyMessagesToggle: false,
+    viewMessages: true,
+  };
+}
 
 export const initMockData = () => {
   if (getUsers().length > 0) return; // already initialized
@@ -200,11 +281,11 @@ export const initMockData = () => {
     icon: '👥',
     description: 'The core ZenTalk development team',
     members: [
-      { userId: 'user-demo', role: 'admin', permissions: { messaging: true, memberManagement: true, channelCreation: true }, joinedAt: now - 86400000 },
-      { userId: 'user-alice', role: 'moderator', permissions: { messaging: true, memberManagement: true, channelCreation: false }, joinedAt: now - 86400000 },
-      { userId: 'user-bob', role: 'member', permissions: { messaging: true, memberManagement: false, channelCreation: false }, joinedAt: now - 86400000 },
-      { userId: 'user-carlos', role: 'member', permissions: { messaging: true, memberManagement: false, channelCreation: false }, joinedAt: now - 86400000 },
-      { userId: 'user-diana', role: 'moderator', permissions: { messaging: true, memberManagement: true, channelCreation: false }, joinedAt: now - 86400000 },
+      { userId: 'user-demo', role: 'owner', permissions: buildPermissions('owner'), joinedAt: now - 86400000 },
+      { userId: 'user-alice', role: 'moderator', permissions: buildPermissions('moderator'), joinedAt: now - 86400000 },
+      { userId: 'user-bob', role: 'member', permissions: buildPermissions('member'), joinedAt: now - 86400000 },
+      { userId: 'user-carlos', role: 'member', permissions: buildPermissions('member'), joinedAt: now - 86400000 },
+      { userId: 'user-diana', role: 'admin', permissions: buildPermissions('admin'), joinedAt: now - 86400000 },
     ],
     createdBy: 'user-demo',
     createdAt: now - 86400000,
@@ -221,13 +302,16 @@ export const initMockData = () => {
       { id: 'channel-general', name: 'general', description: 'General discussion', isBroadcast: false, createdAt: now - 86400000 },
       { id: 'channel-announcements', name: 'announcements', description: 'Official announcements', isBroadcast: true, createdAt: now - 86400000 },
     ],
+    linkedGroupIds: ['group-team'],
     members: [
-      { userId: 'user-demo', role: 'admin', permissions: { messaging: true, memberManagement: true, channelCreation: true } },
-      { userId: 'user-alice', role: 'admin', permissions: { messaging: true, memberManagement: true, channelCreation: true } },
-      { userId: 'user-bob', role: 'member', permissions: { messaging: true, memberManagement: false, channelCreation: false } },
-      { userId: 'user-carlos', role: 'member', permissions: { messaging: true, memberManagement: false, channelCreation: false } },
-      { userId: 'user-diana', role: 'moderator', permissions: { messaging: true, memberManagement: true, channelCreation: false } },
+      { userId: 'user-demo', role: 'owner', permissions: buildPermissions('owner') },
+      { userId: 'user-alice', role: 'admin', permissions: buildPermissions('admin') },
+      { userId: 'user-bob', role: 'member', permissions: buildPermissions('member') },
+      { userId: 'user-carlos', role: 'member', permissions: buildPermissions('member') },
+      { userId: 'user-diana', role: 'moderator', permissions: buildPermissions('moderator') },
     ],
+    roleLabels: DEFAULT_ROLE_LABELS,
+    adminsOnlyMessages: false,
     createdBy: 'user-alice',
     createdAt: now - 86400000,
   };
