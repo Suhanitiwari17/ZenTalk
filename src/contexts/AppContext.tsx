@@ -220,6 +220,7 @@ interface AppContextType {
   // Communities
   communities: ZenCommunity[];
   createCommunity: (name: string, icon: string, description: string, options?: { roleLabels?: Partial<RoleLabels>; adminsOnlyMessages?: boolean; memberIds?: string[] }) => void;
+  deleteCommunity: (communityId: string) => void;
   addChannelToCommunity: (communityId: string, channelName: string, description: string, isBroadcast: boolean, isTemporary: boolean, expiresAt?: number) => void;
   addGroupToCommunity: (communityId: string, groupId: string) => void;
   removeGroupFromCommunity: (communityId: string, groupId: string) => void;
@@ -1433,6 +1434,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setActiveChat(chat);
   }, [currentUser, refreshCommunities, refreshChats, setActiveChat]);
 
+  const deleteCommunity = useCallback((communityId: string) => {
+    const community = store.getCommunityById(communityId);
+    if (!community) return;
+
+    const communityChats = store.getChats().filter(chat => chat.communityId === communityId);
+    communityChats.forEach(chat => {
+      store.deleteMessagesForChat(chat.id);
+      store.deleteChat(chat.id);
+    });
+
+    store.deleteCommunity(communityId);
+    refreshChats();
+    refreshCommunities();
+
+    if (activeChatRef.current?.communityId === communityId) {
+      setShowInfoPanel(false);
+      setActiveChatState(null);
+      setMessages([]);
+    }
+  }, [refreshChats, refreshCommunities]);
+
   const addChannelToCommunity = useCallback((communityId: string, channelName: string, description: string, isBroadcast: boolean, isTemporary: boolean, expiresAt?: number) => {
     if (!currentUser) return;
     const community = store.getCommunityById(communityId);
@@ -1900,7 +1922,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     chats, activeChat, setActiveChat, refreshChats,
     messages, sendMessage, editMessage, deleteMessage, deleteMessageForEveryone, forwardMessage, toggleStar, refreshMessages,
     groups, createGroup, updateGroup, leaveGroup, kickMember, refreshGroups,
-    communities, createCommunity, addChannelToCommunity, addGroupToCommunity,
+    communities, createCommunity, deleteCommunity, addChannelToCommunity, addGroupToCommunity,
     removeGroupFromCommunity, createCommunityGroup, addMemberToCommunity, removeMemberFromCommunity,
     updateCommunityRole, updateCommunityRoleLabels, toggleCommunityAdminsOnlyMessages,
     updateMemberPermissions, updateGroupMemberPermissions, updateGroupMemberRole, refreshCommunities,

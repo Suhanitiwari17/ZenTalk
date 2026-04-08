@@ -73,6 +73,12 @@ export const deleteMessage = (chatId: string, msgId: string, userId: string) => 
     m.id === msgId ? { ...m, deletedFor: [...m.deletedFor, userId] } : m
   ));
 };
+export const deleteMessagesForChat = (chatId: string) => {
+  const all = getAllMessages();
+  const next = { ...all };
+  delete next[chatId];
+  set(KEYS.MESSAGES, next);
+};
 
 // Groups
 export const getGroups = (): ZenGroup[] => get(KEYS.GROUPS, []);
@@ -101,6 +107,7 @@ export const addCommunity = (c: ZenCommunity) => setCommunities([...getCommuniti
 export const updateCommunity = (id: string, patch: Partial<ZenCommunity>) => {
   setCommunities(getCommunities().map(c => c.id === id ? { ...c, ...patch } : c));
 };
+export const deleteCommunity = (id: string) => setCommunities(getCommunities().filter(c => c.id !== id));
 
 // Contacts
 export const getContacts = (): ZenContact[] => get(KEYS.CONTACTS, []);

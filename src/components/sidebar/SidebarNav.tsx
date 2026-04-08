@@ -426,21 +426,22 @@ export default function SidebarNav() {
                         )}
                         <span>Groups</span>
                       </button>
-                      {getCommunitySectionState(community.id).groups && groups.filter(group => community.linkedGroupIds.includes(group.id)).map(group => {
-                  const groupChat = chats.find(chat => chat.groupId === group.id);
-                  if (!groupChat) return null;
+                      {getCommunitySectionState(community.id).groups && community.linkedGroupIds.map(groupId => {
+                  const group = groups.find(item => item.id === groupId);
+                  const groupChat = chats.find(chat => chat.groupId === groupId);
+                  if (!groupChat && !group) return null;
                   return (
                     <button
-                      key={group.id}
-                      onClick={() => setActiveChat(groupChat)}
+                      key={groupId}
+                      onClick={() => groupChat && setActiveChat(groupChat)}
                       className={`w-full flex items-center gap-2 px-9 py-2 text-sm transition-colors ${
-                        activeChat?.groupId === group.id ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted/60'
+                        activeChat?.groupId === groupId ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted/60'
                       }`}
                     >
                       <Users className="w-3.5 h-3.5 flex-shrink-0" />
-                      <span className="flex-1 truncate text-left font-medium">{group.name}</span>
+                      <span className="flex-1 truncate text-left font-medium">{group?.name || groupChat?.name || 'Group'}</span>
                       <span className="text-[10px] rounded bg-muted px-1.5 py-0.5 text-muted-foreground">
-                        {group.members.length}
+                        {group?.members.length ?? groupChat?.participants.length ?? 0}
                       </span>
                     </button>
                   );

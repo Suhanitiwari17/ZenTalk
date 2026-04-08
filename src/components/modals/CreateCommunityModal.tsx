@@ -24,7 +24,7 @@ const ROLE_PRESETS = [
 ];
 
 export default function CreateCommunityModal() {
-  const { createCommunity, setShowCreateCommunity, allUsers, currentUser } = useApp();
+  const { createCommunity, setShowCreateCommunity, allUsers, currentUser, setSidebarTab } = useApp();
   const [name, setName] = useState('');
   const [icon, setIcon] = useState('🌐');
   const [description, setDescription] = useState('');
@@ -46,7 +46,9 @@ export default function CreateCommunityModal() {
 
   const handleCreate = () => {
     if (!name.trim()) { setError('Please enter a community name'); return; }
+    setError('');
     createCommunity(name.trim(), icon, description, { roleLabels, adminsOnlyMessages, memberIds: selectedMembers });
+    setSidebarTab('communities');
     setShowCreateCommunity(false);
   };
 
@@ -54,7 +56,7 @@ export default function CreateCommunityModal() {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-card rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden">
+      <div className="bg-card rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden">
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <h2 className="font-bold text-foreground text-lg">New Community</h2>
           <button onClick={() => setShowCreateCommunity(false)}
@@ -63,14 +65,14 @@ export default function CreateCommunityModal() {
           </button>
         </div>
 
-        <div className="max-h-[calc(85vh-78px)] overflow-y-auto p-6 space-y-6">
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
           {error && <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm">{error}</div>}
 
           <div>
             <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Community Icon</label>
             <div className="flex flex-wrap gap-2">
               {ICONS.map(i => (
-                <button key={i} onClick={() => setIcon(i)}
+                <button type="button" key={i} onClick={() => setIcon(i)}
                   className={`w-10 h-10 rounded-xl text-xl flex items-center justify-center transition-all ${
                     icon === i ? 'bg-primary/20 ring-2 ring-primary scale-110' : 'bg-muted hover:bg-muted/80'
                   }`}>
@@ -105,6 +107,7 @@ export default function CreateCommunityModal() {
               {ROLE_PRESETS.map(preset => (
                 <button
                   key={preset.id}
+                  type="button"
                   onClick={() => handlePreset(preset.id)}
                   className="rounded-xl border border-border px-3 py-2 text-xs font-medium text-foreground hover:bg-muted"
                 >
@@ -140,6 +143,7 @@ export default function CreateCommunityModal() {
                 </div>
               </div>
               <button
+                type="button"
                 onClick={() => setAdminsOnlyMessages(prev => !prev)}
                 className={`relative h-6 w-10 rounded-full transition-colors ${adminsOnlyMessages ? 'bg-primary' : 'bg-muted-foreground/30'}`}
               >
@@ -192,12 +196,12 @@ export default function CreateCommunityModal() {
           </div>
         </div>
 
-        <div className="flex gap-3 px-6 py-4 border-t border-border">
-          <button onClick={() => setShowCreateCommunity(false)}
+        <div className="flex flex-shrink-0 gap-3 px-6 py-4 border-t border-border bg-card">
+          <button type="button" onClick={() => setShowCreateCommunity(false)}
             className="flex-1 py-2.5 rounded-xl border border-border text-sm font-medium text-foreground hover:bg-muted transition-colors">
             Cancel
           </button>
-          <button onClick={handleCreate}
+          <button type="button" onClick={handleCreate}
             className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-primary/90 transition-all active:scale-[0.98]">
             <Globe className="w-4 h-4" /> Create Community
           </button>

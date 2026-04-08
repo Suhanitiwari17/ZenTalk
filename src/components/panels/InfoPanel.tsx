@@ -42,6 +42,20 @@ const DEFAULT_ROLE_LABELS: RoleLabels = {
   member: 'Member',
 };
 
+const DEFAULT_MEMBER_PERMISSIONS: MemberPermissions = {
+  sendMessages: true,
+  deleteMessages: false,
+  addGroup: false,
+  removeGroup: false,
+  addMember: false,
+  removeMember: false,
+  addChannel: false,
+  removeChannel: false,
+  assignPositions: false,
+  adminsOnlyMessagesToggle: false,
+  viewMessages: true,
+};
+
 const getAssignableRoles = (actorRole?: UserRole | null) => {
   if (actorRole === 'owner') return ['admin', 'moderator', 'member'] as UserRole[];
   if (actorRole === 'admin') return ['moderator', 'member'] as UserRole[];
@@ -132,7 +146,7 @@ function AddChannelModal({ communityId, onClose }: { communityId: string; onClos
 
 // ─── Add/Create Group in Community Modal ─────────────────────────────────────
 function AddGroupModal({ communityId, onClose }: { communityId: string; onClose: () => void }) {
-  const { groups, communities, addGroupToCommunity, createCommunityGroup, currentUser, allUsers } = useApp();
+  const { groups, communities, chats, addGroupToCommunity, createCommunityGroup, currentUser, allUsers } = useApp();
   const [mode, setMode] = useState<'existing' | 'create'>('existing');
   const [selectedGroupId, setSelectedGroupId] = useState('');
   const [name, setName] = useState('');
@@ -143,7 +157,25 @@ function AddGroupModal({ communityId, onClose }: { communityId: string; onClose:
 
   const community = communities.find(item => item.id === communityId);
   const linkedGroupIds = new Set(community?.linkedGroupIds ?? []);
-  const availableGroups = groups.filter(group => !linkedGroupIds.has(group.id));
+  const fallbackGroups = chats
+    .filter(chat => chat.type === 'group' && chat.groupId)
+    .map(chat => ({
+      id: chat.groupId!,
+      name: chat.name,
+      icon: chat.avatar,
+      description: '',
+      members: chat.participants.map(userId => ({
+        userId,
+        role: 'member' as const,
+        permissions: { ...DEFAULT_MEMBER_PERMISSIONS },
+        joinedAt: Date.now(),
+      })),
+      createdBy: currentUser?.id || '',
+      createdAt: Date.now(),
+      isTemporary: false,
+    }))
+    .filter(group => !groups.some(existing => existing.id === group.id));
+  const availableGroups = [...groups, ...fallbackGroups].filter(group => !linkedGroupIds.has(group.id));
   const availableUsers = allUsers.filter(user => user.id !== currentUser?.id && community?.members.some(member => member.userId === user.id));
 
   const handleAdd = () => {
@@ -311,7 +343,7 @@ export default function InfoPanel() {
   const {
     activeChat, setActiveChat, setShowInfoPanel, allUsers, currentUser,
     refreshGroups, refreshChats, startCall, leaveGroup, kickMember,
-    communities, groups, removeMemberFromCommunity,
+    communities, groups, removeMemberFromCommunity, deleteCommunity,
     removeGroupFromCommunity,
     updateCommunityRole, updateCommunityRoleLabels, toggleCommunityAdminsOnlyMessages,
     updateMemberPermissions, updateGroupMemberPermissions, updateGroupMemberRole,
@@ -668,6 +700,14 @@ export default function InfoPanel() {
                   <button onClick={() => leaveGroup(activeChat.groupId!)}
                     className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-destructive hover:bg-destructive/10 transition-colors">
                     <UserMinus className="w-4 h-4" /> Leave Group
+                  </button>
+                )}
+                {activeChat.type === 'channel' && community && isCommunityOwner && (
+                  <button
+                    onClick={() => deleteCommunity(community.id)}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-destructive hover:bg-destructive/10 transition-colors"
+                  >
+                    <Trash2 className="w-4 h-4" /> Delete Community
                   </button>
                 )}
                 <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-destructive hover:bg-destructive/10 transition-colors">
